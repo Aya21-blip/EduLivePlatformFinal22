@@ -3,9 +3,11 @@ const APP_ID = "4e6dbcc22be241aeb87015d12ad02996";
 const channelName = "OnlineClassroom2";
 const uid = Math.floor(Math.random() * 100000);
 let token = null;
+
+// تعريف role مرة واحدة فقط
 let role = window.location.pathname.includes("teacher") ? "teacher" : "student";
 
-let client = AgoraRTC.createClient({ mode: "rtc", codec: "h264" });
+let client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
 let localTracks = { videoTrack: null, audioTrack: null };
 let remoteUsers = {};
 
@@ -16,24 +18,25 @@ async function getTokenAndJoin() {
   const data = await response.json();
   token = data.token;
 
-  // تحسين الإعدادات قبل الانضمام
+  // ضبط دور العميل قبل الانضمام
   client.setClientRole(role === "teacher" ? "host" : "audience");
 
   await client.join(APP_ID, channelName, token, uid);
+
+  // مراقبة جودة الشبكة
   client.on("network-quality", (stats) => {
-  console.log("📶 جودة الشبكة - إرسال:", stats.uplinkNetworkQuality, "استقبال:", stats.downlinkNetworkQuality);
-});
-  if (role === "student") {
-  client.setClientRole("audience", { level: 1 }); // مستوى أقل من البث الكامل
-}
-  // تفعيل البث الثنائي للطلاب لتقليل التقطيع
-  if (role === "student") {
-    client.enableDualStream();
-  }
+    console.log("📶 جودة الشبكة - إرسال:", stats.uplinkNetworkQuality, "استقبال:", stats.downlinkNetworkQuality);
+    if (stats.downlinkNetworkQuality > 4 || stats.uplinkNetworkQuality > 4) {
+      console.warn("⚠️ اتصال الشبكة غير مستقر");
+    }
+  });
+
+  // تمكين البث الثنائي للطلاب لتقليل التقطيع
+  if (role === "student") client.enableDualStream();
 
   if (role === "teacher") {
-    // إعدادات الفيديو والصوت بجودة متوسطة لتقليل استهلاك البيانات
-    localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack({ encoderConfig: "low" });
+    // إعداد الفيديو والصوت بجودة متوسطة
+    localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack({ encoderConfig: "480p" });
     localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
 
     const teacherDiv = document.createElement("div");
@@ -45,7 +48,7 @@ async function getTokenAndJoin() {
 
     await client.publish([localTracks.videoTrack, localTracks.audioTrack]);
 
-    // عرض الطلبات
+    // استقبال طلبات المايك من الطلاب
     socket.on("micRequested", ({ studentId, name }) => {
       const li = document.getElementById(studentId);
       if (li) li.innerText = `${name} 🔔 طلب المايك`;
@@ -56,15 +59,14 @@ async function getTokenAndJoin() {
       }
     });
 
+    // تحديث قائمة الطلاب
     socket.on("studentListUpdate", ({ studentId, name }) => {
-      if (!studentId) {
-        document.getElementById("studentsList").innerHTML = "";
-        return;
-      }
+      const listEl = document.getElementById("studentsList");
+      if (!studentId) return listEl ? listEl.innerHTML = "" : null;
       const li = document.createElement("li");
       li.id = studentId;
       li.innerText = name;
-      document.getElementById("studentsList").appendChild(li);
+      listEl.appendChild(li);
     });
   }
 
@@ -84,9 +86,7 @@ async function getTokenAndJoin() {
         user.videoTrack.play(remoteDiv);
       }
 
-      if (mediaType === "audio") {
-        user.audioTrack.play();
-      }
+      if (mediaType === "audio") user.audioTrack.play();
     });
 
     socket.on("micApproved", async () => {
@@ -94,18 +94,11 @@ async function getTokenAndJoin() {
       await client.publish([localTracks.audioTrack]);
     });
   }
-
-  // مراقبة جودة الشبكة
-  client.on("network-quality", (stats) => {
-    if (stats.downlinkNetworkQuality > 4 || stats.uplinkNetworkQuality > 4) {
-      console.warn("⚠️ اتصال الشبكة غير مستقر");
-    }
-  });
 }
 
 getTokenAndJoin();
 
-// teacher controls
+// Teacher controls
 if (role === "teacher") {
   document.getElementById("startBtn").onclick = async () => {
     console.log("✅ بدء البث...");
@@ -140,10 +133,9 @@ if (role === "teacher") {
   };
 }
 
-// student mic request
+// Student mic request
 if (role === "student") {
   document.getElementById("requestMicBtn").onclick = () => {
     socket.emit("requestMic", { channel: channelName, name: "طالب" });
   };
 }
-
