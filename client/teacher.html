@@ -1,21 +1,21 @@
 <!DOCTYPE html>
 <html lang="ar">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>المعلم</title>
 </head>
 <body>
   <h2>صفحة المعلم</h2>
   <button id="startBtn">بدء البث</button>
   <button id="stopBtn">إنهاء البث</button>
-  <button id="shareScreenBtn">مشاركة الشاشة</button>
   <ul id="studentsList"></ul>
   <div id="videoContainer"></div>
 
-  
+  <script>
+    const role = "teacher";
+  </script>
   <script src="https://cdn.agora.io/sdk/release/AgoraRTC_N.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
-
