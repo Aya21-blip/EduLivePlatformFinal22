@@ -1,18 +1,21 @@
 <!DOCTYPE html>
 <html lang="ar">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>الطالب</title>
 </head>
 <body>
   <h2>صفحة الطالب</h2>
-  <button id="requestMicBtn">طلب المايك</button>
-  <div id="videoContainer" style="width: 100%; height: 90vh;"></div>
+  <input type="text" id="studentName" placeholder="أدخل اسمك" />
+  <button id="joinBtn">انضمام للبث</button>
+  <button id="micRequestBtn" disabled>طلب التحدث</button>
+  <div id="videoContainer"></div>
 
-  
+  <script>
+    const role = "student";
+  </script>
   <script src="https://cdn.agora.io/sdk/release/AgoraRTC_N.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
-
