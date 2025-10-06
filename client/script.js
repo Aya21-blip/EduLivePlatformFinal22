@@ -2,8 +2,8 @@ const socket = io();
 const client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
 let localTracks = [];
 let remoteUsers = {};
-const APP_ID = "YOUR_AGORA_APP_ID"; // ← غيّري هذا إلى App ID الحقيقي
-const CHANNEL = "classroom";
+const APP_ID = "4e6dbcc22be241aeb87015d12ad02996"; // ← غيّري هذا إلى App ID الحقيقي
+const CHANNEL = "OnlineClassroom2";
 let NAME = "";
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -128,4 +128,5 @@ function showMicRequest(studentId, name) {
     li.onclick = null;
   };
 }
+
 
