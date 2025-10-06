@@ -1,150 +1,131 @@
 const socket = io();
-const APP_ID = "4e6dbcc22be241aeb87015d12ad02996";
-const channelName = "OnlineClassroom2";
-const uid = Math.floor(Math.random() * 100000);
-let token = null;
-let role = window.location.pathname.includes("teacher") ? "teacher" : "student";
-
-let client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
-let localTracks = { videoTrack: null, audioTrack: null };
+const client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
+let localTracks = [];
 let remoteUsers = {};
+const APP_ID = "YOUR_AGORA_APP_ID"; // ← غيّري هذا إلى App ID الحقيقي
+const CHANNEL = "classroom";
+let NAME = "";
 
-let videoContainer = document.getElementById("videoContainer");
+document.addEventListener("DOMContentLoaded", () => {
+  if (typeof role === "undefined") return;
 
-// جلب التوكن والانضمام للقناة
-async function getTokenAndJoin() {
-  const response = await fetch(`/rtc-token?channel=${channelName}`);
-  const data = await response.json();
-  token = data.token;
+  if (role === "teacher") {
+    document.getElementById("startBtn").onclick = startBroadcast;
+    document.getElementById("stopBtn").onclick = leaveChannel;
 
-  // إعداد الدور قبل الانضمام
-  client.setClientRole(role === "teacher" ? "host" : "audience");
+    socket.on("studentListUpdate", ({ studentId, name }) => {
+      updateStudentList(studentId, name);
+    });
 
-  await client.join(APP_ID, channelName, token, uid);
+    socket.on("micRequested", ({ studentId, name }) => {
+      showMicRequest(studentId, name);
+    });
+  }
 
-  // مراقبة جودة الشبكة
-  client.on("network-quality", (stats) => {
-    console.log("📶 جودة الشبكة - إرسال:", stats.uplinkNetworkQuality, "استقبال:", stats.downlinkNetworkQuality);
+  if (role === "student") {
+    document.getElementById("joinBtn").onclick = joinAsAudience;
+    document.getElementById("micRequestBtn").onclick = () => {
+      socket.emit("requestMic", { name: NAME });
+    };
+
+    socket.on("micApproved", async () => {
+      await enableMic();
+    });
+  }
+});
+
+// === المعلم يبدأ البث ===
+async function startBroadcast() {
+  await joinChannel("host");
+  localTracks = await AgoraRTC.createMicrophoneAndCameraTracks();
+
+  localTracks.forEach(track => {
+    track.play("videoContainer");
+    client.publish(track);
   });
 
-  // تفعيل البث الثنائي للطلاب
-  if (role === "student") {
-    client.enableDualStream();
-    client.setClientRole("audience", { level: 1 });
-  }
-
-  // إعدادات المعلم
-  if (role === "teacher") {
-    localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack({ encoderConfig: "480p" });
-    localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-
-    const teacherDiv = document.createElement("div");
-    teacherDiv.id = `video-${uid}`;
-    teacherDiv.style.width = "100%";
-    teacherDiv.style.height = "90vh";
-    videoContainer.appendChild(teacherDiv);
-    localTracks.videoTrack.play(teacherDiv);
-
-    await client.publish([localTracks.videoTrack, localTracks.audioTrack]);
-
-    // تحديث قائمة الطلاب
-    socket.on("studentListUpdate", ({ studentId, name }) => {
-      const studentsList = document.getElementById("studentsList");
-      if (!studentId) return studentsList.innerHTML = "";
-
-      let li = document.getElementById(studentId);
-      if (!li) {
-        li = document.createElement("li");
-        li.id = studentId;
-        li.innerText = name;
-        studentsList.appendChild(li);
-      }
-    });
-
-    // معالجة طلبات المايك
-    socket.on("micRequested", ({ studentId, name }) => {
-      const li = document.getElementById(studentId);
-      if (!li) return;
-
-      li.innerText = `${name} 🔔 طلب المايك`;
-      li.onclick = () => {
-        socket.emit("approveMic", { studentId });
-        li.innerText = `${name} 🎤 المايك مفعل`;
-      };
-    });
-  }
-
-  // إعدادات الطالب
-  if (role === "student") {
-    socket.emit("join-student", { name: "طالب" });
-
-    client.on("user-published", async (user, mediaType) => {
-      await client.subscribe(user, mediaType);
-
-      if (mediaType === "video") {
-        const remoteDiv = document.createElement("div");
-        remoteDiv.id = `video-${user.uid}`;
-        remoteDiv.style.width = "100%";
-        remoteDiv.style.height = "90vh";
-        videoContainer.innerHTML = "";
-        videoContainer.appendChild(remoteDiv);
-        user.videoTrack.play(remoteDiv);
-      }
-
-      if (mediaType === "audio") {
-        user.audioTrack.play();
-      }
-    });
-
-    // عند الموافقة على المايك
-    socket.on("micApproved", async () => {
-      localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-      await client.publish([localTracks.audioTrack]);
-    });
-  }
+  console.log("✅ بدء البث...");
 }
 
-getTokenAndJoin();
+// === الطالب ينضم كمشاهد ===
+async function joinAsAudience() {
+  NAME = document.getElementById("studentName").value.trim();
+  if (!NAME) return alert("يرجى إدخال اسمك");
 
-// عناصر التحكم للمعلم
-if (role === "teacher") {
-  document.getElementById("startBtn").onclick = async () => {
-    console.log("✅ بدء البث...");
-  };
+  await joinChannel("audience");
+  document.getElementById("micRequestBtn").disabled = false;
 
-  document.getElementById("stopBtn").onclick = async () => {
-    for (let trackName in localTracks) {
-      let track = localTracks[trackName];
-      if (track) {
-        track.stop();
-        track.close();
-      }
+  socket.emit("join-student", { name: NAME });
+
+  client.on("user-published", async (user, mediaType) => {
+    await client.subscribe(user, mediaType);
+    if (mediaType === "video") {
+      const remoteVideo = document.createElement("div");
+      remoteVideo.id = user.uid;
+      document.getElementById("videoContainer").appendChild(remoteVideo);
+      user.videoTrack.play(remoteVideo);
     }
-    await client.leave();
-    videoContainer.innerHTML = "";
-    console.log("🛑 تم إيقاف البث");
-  };
+    if (mediaType === "audio") {
+      user.audioTrack.play();
+    }
+  });
 
-  document.getElementById("shareScreenBtn").onclick = async () => {
-    const screenTrack = await AgoraRTC.createScreenVideoTrack();
-    await client.unpublish(localTracks.videoTrack);
-    await client.publish(screenTrack);
-    localTracks.videoTrack = screenTrack;
-
-    const screenDiv = document.createElement("div");
-    screenDiv.id = `video-${uid}`;
-    screenDiv.style.width = "100%";
-    screenDiv.style.height = "90vh";
-    videoContainer.innerHTML = "";
-    videoContainer.appendChild(screenDiv);
-    screenTrack.play(screenDiv);
-  };
+  client.on("user-unpublished", user => {
+    document.getElementById(user.uid)?.remove();
+  });
 }
 
-// عناصر تحكم الطالب
-if (role === "student") {
-  document.getElementById("requestMicBtn").onclick = () => {
-    socket.emit("requestMic", { channel: channelName, name: "طالب" });
+// === انضمام للقناة ===
+async function joinChannel(clientRole) {
+  client.setClientRole(clientRole);
+
+  const tokenRes = await fetch(`/rtc-token?channel=${CHANNEL}`);
+  const data = await tokenRes.json();
+
+  await client.join(APP_ID, CHANNEL, data.token || null, null);
+}
+
+// === تفعيل مايك الطالب ===
+async function enableMic() {
+  const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
+  await client.publish([micTrack]);
+  console.log("🎤 تم تفعيل المايك");
+}
+
+// === الخروج من القناة ===
+async function leaveChannel() {
+  for (const track of localTracks) {
+    track.stop();
+    track.close();
+  }
+  await client.leave();
+  document.getElementById("videoContainer").innerHTML = "";
+}
+
+// === تحديث قائمة الطلاب في صفحة المعلم ===
+function updateStudentList(studentId, name) {
+  const list = document.getElementById("studentsList");
+  const exists = document.getElementById(`student-${studentId}`);
+  if (exists) return;
+
+  const li = document.createElement("li");
+  li.id = `student-${studentId}`;
+  li.textContent = name;
+  list.appendChild(li);
+}
+
+// === عرض رمز الطلب بجانب اسم الطالب ===
+function showMicRequest(studentId, name) {
+  const li = document.getElementById(`student-${studentId}`);
+  if (!li) return;
+
+  li.innerHTML = `${name} 🔔`;
+  li.style.cursor = "pointer";
+  li.onclick = () => {
+    socket.emit("approveMic", { studentId });
+    li.innerHTML = `${name} 🎤`;
+    li.style.cursor = "default";
+    li.onclick = null;
   };
 }
 
